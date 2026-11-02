@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ brand }} · {{ store_label }}{% endblock %}
+{% block crumbs %}<a href="/">Магазини</a> › <a href="{{ url('/brands', store=store) }}">{{ store_label }}</a> › <b>{{ brand }}</b>{% endblock %}
+{% block content %}
+<h1>{{ brand }}</h1>
+<p class="sub">Остання викладка кожного відділу</p>
+<div class="grid depts">
+  {% for b in latest %}
+  <a class="card" href="{{ url('/batch/' ~ q(b.batch_id), store=store) }}">
+    {% if covers[b.batch_id] %}
+    <img loading="lazy" src="/img/{{ q(b.batch_id) }}/{{ covers[b.batch_id] }}/medium" alt="{{ b.department }}">
+    {% else %}<div class="noimg">Без фото</div>{% endif %}
+    <div class="meta">
+      <b>{{ b.department }}</b>
+      <span>{{ b.collection }}{% if b.change_type %} · {{ b.change_type }}{% endif %}</span>
+      <span>{% if store == ALL %}{{ b.store }} · {% endif %}{{ local(b.created) }}</span>
+    </div>
+  </a>
+  {% else %}
+  <p class="empty">Для цього бренду в магазині {{ store_label }} ще немає викладок.</p>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ b.brand }} · {{ b.department }}{% endblock %}
+{% block crumbs %}<a href="/">Магазини</a> › <a href="{{ url('/brands', store=store) }}">{{ store_label }}</a> ›
+<a href="{{ url('/brand', store=store, brand=b.brand) }}">{{ b.brand }}</a> › <b>{{ b.department }}</b>{% endblock %}
+{% block content %}
+<h1>{{ b.brand }} · {{ b.department }}</h1>
+<p class="sub">{{ b.store or "Магазин не вказано" }} · Викладка від {{ local(b.created) }} · {{ b.collection }}{% if b.change_type %} · {{ b.change_type }}{% endif %}</p>
+<div class="grid photos">
+  {% for p in photos %}
+  <a href="{{ url('/photo/' ~ q(b.batch_id) ~ '/' ~ p.item_id, store=store) }}">
+    <img loading="lazy" src="/img/{{ q(b.batch_id) }}/{{ p.item_id }}/medium" alt="Фото {{ loop.index }}">
+  </a>
+  {% else %}
+  <p class="empty">Фото цієї викладки ще обробляються або не прив'язані.</p>
+  {% endfor %}
+</div>
+{% if history|length > 1 %}
+<h2>Попередні викладки</h2>
+<ul class="history">
+  {% for h in history %}
+  <li{% if h.batch_id == b.batch_id %} class="current"{% endif %}>
+    <a href="{{ url('/batch/' ~ q(h.batch_id), store=store) }}">{{ local(h.created) }}</a>
+    <span>{% if store == ALL %}{{ h.store }} · {% endif %}{{ h.collection }}{% if h.change_type %} · {{ h.change_type }}{% endif %} · {{ h.photos }} фото</span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

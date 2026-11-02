@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Оберіть магазин</h1>
+<input class="search" id="q" type="search" placeholder="Пошук магазину" autocomplete="off">
+<a class="tile tile-all" href="{{ url('/brands', store=ALL) }}">{{ ALL_LABEL }}</a>
+<div class="list" id="items">
+  {% for s in stores %}
+  <a class="tile" href="{{ url('/brands', store=s.title) }}" data-search="{{ (s.title ~ ' ' ~ s.city ~ ' ' ~ s.aliases)|lower }}">
+    {{ s.title }}{% if s.city %}<small>{{ s.city }}</small>{% endif %}
+  </a>
+  {% else %}
+  <p class="empty">Немає активних магазинів у списку MerchandisingStores.</p>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/filter.js"></script>{% endblock %}

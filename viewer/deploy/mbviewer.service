@@ -1,0 +1,21 @@
+[Unit]
+Description=Merchandising photo viewer (Зразки викладок)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mbviewer
+Group=mbviewer
+WorkingDirectory=/opt/mbviewer/viewer
+EnvironmentFile=/etc/mbviewer/mbviewer.env
+ExecStart=/opt/mbviewer/venv/bin/uvicorn --factory app.main:app_factory --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+CacheDirectory=mbviewer
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

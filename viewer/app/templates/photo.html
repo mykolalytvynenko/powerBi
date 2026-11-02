@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Фото {{ pos }} з {{ total }}{% endblock %}
+{% block crumbs %}<a href="{{ url('/batch/' ~ q(b.batch_id), store=store) }}">‹ {{ b.brand }} · {{ b.department }}</a> · {{ pos }} з {{ total }}{% endblock %}
+{% block content %}
+<div class="viewer">
+  <a href="/img/{{ q(b.batch_id) }}/{{ item_id }}/original" target="_blank" rel="noopener">
+    <img src="/img/{{ q(b.batch_id) }}/{{ item_id }}/large" alt="Фото {{ pos }}">
+  </a>
+  <div class="pager">
+    {% if prev_id %}<a id="prev" href="{{ url('/photo/' ~ q(b.batch_id) ~ '/' ~ prev_id, store=store) }}">‹ Попереднє</a>{% else %}<span></span>{% endif %}
+    <a href="/img/{{ q(b.batch_id) }}/{{ item_id }}/original" target="_blank" rel="noopener">Оригінал</a>
+    {% if next_id %}<a id="next" href="{{ url('/photo/' ~ q(b.batch_id) ~ '/' ~ next_id, store=store) }}">Наступне ›</a>{% else %}<span></span>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/swipe.js"></script>{% endblock %}

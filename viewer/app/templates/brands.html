@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ store_label }} · Зразки викладок{% endblock %}
+{% block crumbs %}<a href="/">Магазини</a> › <b>{{ store_label }}</b>{% endblock %}
+{% block content %}
+<h1>Бренди</h1>
+<input class="search" id="q" type="search" placeholder="Пошук бренду" autocomplete="off">
+{% if has_latin and has_cyr %}
+<div class="tabs" id="scripts">
+  <button type="button" data-script="" class="on">Усі</button>
+  <button type="button" data-script="Latin">A–Z</button>
+  <button type="button" data-script="Cyr">А–Я</button>
+</div>
+{% endif %}
+<div class="grid brands" id="items">
+  {% for b in brands %}
+  <a class="tile" href="{{ url('/brand', store=store, brand=b.title) }}" data-script="{{ b.script }}"
+     data-search="{{ (b.title ~ ' ' ~ b.aliases)|lower }}">{{ b.title }}</a>
+  {% else %}
+  <p class="empty">У магазині {{ store_label }} ще немає викладок.</p>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/filter.js"></script>{% endblock %}
