@@ -1,0 +1,136 @@
+# Застосунок «Зразки викладок» як pod у k3s (сервер docker), за наявним Traefik.
+# Сертифікат видає cert-manager (ClusterIssuer letsencrypt-prod). Наявні Ingress не змінюються.
+#
+# Секрети (TENANT_ID, CLIENT_ID, CLIENT_SECRET, SESSION_SECRET) у git не зберігаються.
+# Вони живуть у Secret mbviewer-env, який створюється з файлу на сервері:
+#   sudo kubectl -n mbviewer create secret generic mbviewer-env --from-env-file=/etc/mbviewer/mbviewer.env
+#
+# Образ збирається на сервері й імпортується в k3s скриптом deploy/k3s-deploy.sh.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mbviewer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mbviewer-config
+  namespace: mbviewer
+data:
+  BASE_URL: https://merch.vsisvoi.ua
+  SP_HOSTNAME: vsisvoi.sharepoint.com
+  SP_SITE_PATH: /sites/MerchandisingTest
+  CACHE_TTL: "120"
+  IMAGE_CACHE_DIR: /cache
+  # Traefik звертається з мережі подів k3s
+  FORWARDED_ALLOW_IPS: 10.42.0.0/16
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+  labels:
+    app: mbviewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mbviewer
+  template:
+    metadata:
+      labels:
+        app: mbviewer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mbviewer
+          image: mbviewer:local   # k3s-deploy.sh підставляє тег з коміту
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: mbviewer-config
+            - secretRef:
+                name: mbviewer-env
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # кеш мініатюр; після перезапуску пода наповнюється заново з SharePoint
+        - name: cache
+          emptyDir:
+            sizeLimit: 5Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+spec:
+  selector:
+    app: mbviewer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - merch.vsisvoi.ua
+      secretName: merch-vsisvoi-ua-tls
+  rules:
+    - host: merch.vsisvoi.ua
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mbviewer
+                port:
+                  number: 80

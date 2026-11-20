@@ -30,17 +30,58 @@ pytest -q
 З реальними даними: скопіюйте `.env.example` у `.env`, заповніть TENANT_ID, CLIENT_ID, CLIENT_SECRET,
 SESSION_SECRET, `BASE_URL=http://localhost:8000`, потім `set -a; . ./.env; set +a` і той самий `uvicorn`.
 
-## Розгортання на сервері docker (10.10.252.108, Traefik у k3s)
+## Розгортання на сервері docker (10.10.252.108): pod у k3s
 
-Порти 80/443 на сервері належать Traefik у k3s, тому окремий Nginx і certbot не потрібні.
-Застосунок працює як служба systemd на порту 8090, а k3s маршрутизує на нього `merch.vsisvoi.ua`
-і видає сертифікат через cert-manager.
+Порти 80/443 на сервері належать Traefik у k3s, тому застосунок працює як pod у кластері,
+так само як інші сервіси. Traefik маршрутизує на нього `merch.vsisvoi.ua`, сертифікат видає
+cert-manager (`letsencrypt-prod`). Наявні Ingress не змінюються.
 
-Перед початком: DNS-запис `merch.vsisvoi.ua` (CNAME на `docker.vsisvoi.ua`, як у wiki/git/grafana)
-і Redirect URI `https://merch.vsisvoi.ua/auth/callback` в App registration.
+Перед початком:
+- DNS-запис `merch.vsisvoi.ua` (CNAME на `docker.vsisvoi.ua`, як у wiki/git/grafana);
+- Redirect URI `https://merch.vsisvoi.ua/auth/callback` в App registration.
+
+Перший раз:
 
 ```bash
-sudo apt install -y python3-venv git
+sudo git clone https://github.com/mykolalytvynenko/powerBi /opt/mbviewer
+
+# секрети: тільки на сервері, у git їх немає
+sudo mkdir -p /etc/mbviewer
+sudo cp /opt/mbviewer/viewer/deploy/mbviewer-secrets.env.example /etc/mbviewer/mbviewer.env
+sudo chmod 600 /etc/mbviewer/mbviewer.env
+sudo nano /etc/mbviewer/mbviewer.env        # TENANT_ID, CLIENT_ID, CLIENT_SECRET, SESSION_SECRET
+sudo kubectl create namespace mbviewer
+sudo kubectl -n mbviewer create secret generic mbviewer-env --from-env-file=/etc/mbviewer/mbviewer.env
+
+# збірка образу, імпорт у k3s, запуск
+sudo /opt/mbviewer/viewer/deploy/k3s-deploy.sh
+
+sudo kubectl -n mbviewer get certificate    # дочекатися READY=True
+curl -I https://merch.vsisvoi.ua/health
+```
+
+Оновлення коду: `cd /opt/mbviewer && sudo git pull && sudo viewer/deploy/k3s-deploy.sh`.
+
+Зміна секретів: відредагувати `/etc/mbviewer/mbviewer.env`, потім
+
+```bash
+sudo kubectl -n mbviewer create secret generic mbviewer-env --from-env-file=/etc/mbviewer/mbviewer.env \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+sudo kubectl -n mbviewer rollout restart deployment/mbviewer
+```
+
+Корисне: `sudo kubectl -n mbviewer logs deploy/mbviewer`, `sudo kubectl -n mbviewer get pods`.
+Якщо pod у стані CrashLoopBackOff, у логах буде, якої змінної бракує.
+Сайт SharePoint (MerchandisingTest або Merchandising2) і `BASE_URL` задаються в ConfigMap
+у `deploy/k3s-mbviewer.yaml`. Кеш мініатюр лежить у тимчасовому томі й після перезапуску
+пода наповнюється заново.
+
+## Розгортання на окремому сервері з Nginx (без k3s)
+
+Якщо порти 80/443 вільні: застосунок працює як служба systemd на `127.0.0.1:8000`, перед нею Nginx.
+
+```bash
+sudo apt install -y python3-venv nginx certbot python3-certbot-nginx git
 sudo useradd --system --home /opt/mbviewer --shell /usr/sbin/nologin mbviewer
 sudo git clone https://github.com/mykolalytvynenko/powerBi /opt/mbviewer
 sudo python3 -m venv /opt/mbviewer/venv
@@ -48,29 +89,12 @@ sudo /opt/mbviewer/venv/bin/pip install -r /opt/mbviewer/viewer/requirements.txt
 
 sudo mkdir -p /etc/mbviewer
 sudo cp /opt/mbviewer/viewer/.env.example /etc/mbviewer/mbviewer.env
-sudo nano /etc/mbviewer/mbviewer.env   # TENANT_ID, CLIENT_ID, CLIENT_SECRET, SESSION_SECRET;
-                                       # розкоментувати LISTEN_HOST, LISTEN_PORT, FORWARDED_ALLOW_IPS
+sudo nano /etc/mbviewer/mbviewer.env
 sudo chown root:mbviewer /etc/mbviewer/mbviewer.env && sudo chmod 640 /etc/mbviewer/mbviewer.env
 
 sudo cp /opt/mbviewer/viewer/deploy/mbviewer.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now mbviewer
-curl http://10.10.252.108:8090/health  # {"status":"ok"}
-
-sudo kubectl apply -f /opt/mbviewer/viewer/deploy/k3s-merch.yaml
-sudo kubectl -n mbviewer get ingress,certificate   # дочекатися READY=True у certificate
-curl -I https://merch.vsisvoi.ua/health
-```
-
-Порт 8090 слухає на адресі сервера без TLS, бо Traefik звертається до нього з мережі подів.
-Вхід працює тільки через `https://merch.vsisvoi.ua` (cookie сесії позначена Secure).
-
-## Розгортання на окремому сервері з Nginx
-
-Якщо порти 80/443 вільні: служба лишається на `127.0.0.1:8000` (типові значення), перед нею Nginx.
-
-```bash
-sudo apt install -y nginx certbot python3-certbot-nginx
-# кроки встановлення ті самі, що вище, без LISTEN_* у mbviewer.env і без kubectl
+curl http://127.0.0.1:8000/health
 
 # Сертифікат потрібен до підключення сайту, бо конфіг Nginx на нього посилається.
 sudo certbot certonly --nginx -d merch.vsisvoi.ua
