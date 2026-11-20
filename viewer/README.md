@@ -32,12 +32,16 @@ SESSION_SECRET, `BASE_URL=http://localhost:8000`, потім `set -a; . ./.env; 
 
 ## Розгортання на сервері docker (10.10.252.108): pod у k3s
 
-Порти 80/443 на сервері належать Traefik у k3s, тому застосунок працює як pod у кластері,
-так само як інші сервіси. Traefik маршрутизує на нього `merch.vsisvoi.ua`, сертифікат видає
-cert-manager (`letsencrypt-prod`). Наявні Ingress не змінюються.
+Порти 80/443 на сервері належать Traefik у k3s, тому застосунок працює як pod у кластері.
+Traefik маршрутизує на нього `merch.vsisvoi.ua`, сертифікат видає cert-manager
+(`letsencrypt-prod`, DNS-01 через Cloudflare). Наявні Ingress не змінюються.
+
+На сервері немає Docker, тому власний образ не збирається. Як у sync і mail-relay:
+образ `python:3.13-slim`, код у ConfigMap, залежності ставить initContainer під час старту пода.
+Усе це робить `deploy/k3s-deploy.sh`.
 
 Перед початком:
-- DNS-запис `merch.vsisvoi.ua` (CNAME на `docker.vsisvoi.ua`, як у wiki/git/grafana);
+- запис `merch.vsisvoi.ua` у внутрішньому DNS (CNAME на `docker.vsisvoi.ua`, як у wiki/git/grafana);
 - Redirect URI `https://merch.vsisvoi.ua/auth/callback` в App registration.
 
 Перший раз:
@@ -53,7 +57,7 @@ sudo nano /etc/mbviewer/mbviewer.env        # TENANT_ID, CLIENT_ID, CLIENT_SECRE
 sudo kubectl create namespace mbviewer
 sudo kubectl -n mbviewer create secret generic mbviewer-env --from-env-file=/etc/mbviewer/mbviewer.env
 
-# збірка образу, імпорт у k3s, запуск
+# код у ConfigMap, маніфест, очікування запуску
 sudo /opt/mbviewer/viewer/deploy/k3s-deploy.sh
 
 sudo kubectl -n mbviewer get certificate    # дочекатися READY=True
@@ -74,7 +78,12 @@ sudo kubectl -n mbviewer rollout restart deployment/mbviewer
 Якщо pod у стані CrashLoopBackOff, у логах буде, якої змінної бракує.
 Сайт SharePoint (MerchandisingTest або Merchandising2) і `BASE_URL` задаються в ConfigMap
 у `deploy/k3s-mbviewer.yaml`. Кеш мініатюр лежить у тимчасовому томі й після перезапуску
-пода наповнюється заново.
+пода наповнюється заново. Під час старту pod завантажує залежності з PyPI (близько пів хвилини).
+
+Сервер видно тільки з внутрішньої мережі (публічних DNS-записів немає). Доступ з інтернету
+налаштовується окремо.
+
+`Dockerfile` лишається для запуску там, де образ є чим зібрати; на цьому сервері він не використовується.
 
 ## Розгортання на окремому сервері з Nginx (без k3s)
 
