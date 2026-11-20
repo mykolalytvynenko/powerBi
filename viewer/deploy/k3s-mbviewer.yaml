@@ -1,0 +1,203 @@
+# Застосунок «Зразки викладок» як pod у k3s (сервер docker), за наявним Traefik.
+# Зроблено за тим самим зразком, що sync і mail-relay на цьому сервері: власний образ не збирається.
+#   - образ python:3.13-slim з Docker Hub;
+#   - код лежить у ConfigMap (mbviewer-app, mbviewer-templates, mbviewer-static),
+#     їх створює deploy/k3s-deploy.sh з файлів репозиторію;
+#   - initContainer ставить залежності у /deps (pip install --target).
+# Сертифікат видає cert-manager (ClusterIssuer letsencrypt-prod, DNS-01). Наявні Ingress не змінюються.
+#
+# Секрети (TENANT_ID, CLIENT_ID, CLIENT_SECRET, SESSION_SECRET) у git не зберігаються.
+# Вони живуть у Secret mbviewer-env, який створюється з файлу на сервері:
+#   sudo kubectl -n mbviewer create secret generic mbviewer-env --from-env-file=/etc/mbviewer/mbviewer.env
+#
+# Не застосовуйте цей файл напряму: запускайте deploy/k3s-deploy.sh, він спершу створює ConfigMap з кодом.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mbviewer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mbviewer-config
+  namespace: mbviewer
+data:
+  BASE_URL: https://merch.vsisvoi.ua
+  SP_HOSTNAME: vsisvoi.sharepoint.com
+  SP_SITE_PATH: /sites/MerchandisingTest
+  CACHE_TTL: "120"
+  IMAGE_CACHE_DIR: /cache
+  TZ: Europe/Kyiv
+  TEMPLATES_DIR: /srv/viewer/templates
+  STATIC_DIR: /srv/viewer/static
+  # Traefik звертається з мережі подів k3s
+  FORWARDED_ALLOW_IPS: 10.42.0.0/16
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+  labels:
+    app: mbviewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mbviewer
+  template:
+    metadata:
+      labels:
+        app: mbviewer
+      annotations:
+        # k3s-deploy.sh підставляє коміт і час, щоб кожне розгортання перезапускало pod з новим кодом
+        mbviewer/deployed: "manual"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: deps
+          image: python:3.13-slim
+          command: ["pip", "install", "--no-cache-dir", "--disable-pip-version-check", "--target", "/deps", "-r", "/srv/viewer/app/requirements.txt"]
+          env:
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: app
+              mountPath: /srv/viewer/app
+            - name: deps
+              mountPath: /deps
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: mbviewer
+          image: python:3.13-slim
+          workingDir: /srv/viewer
+          command: ["python", "-m", "uvicorn", "--factory", "app.main:app_factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: PYTHONPATH
+              value: /deps
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: HOME
+              value: /tmp
+          envFrom:
+            - configMapRef:
+                name: mbviewer-config
+            - secretRef:
+                name: mbviewer-env
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: app
+              mountPath: /srv/viewer/app
+            # окремо від app/: том усередині тому ConfigMap (тільки для читання) змонтувати не можна
+            - name: templates
+              mountPath: /srv/viewer/templates
+            - name: static
+              mountPath: /srv/viewer/static
+            - name: deps
+              mountPath: /deps
+            - name: cache
+              mountPath: /cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: app
+          configMap:
+            name: mbviewer-app
+        - name: templates
+          configMap:
+            name: mbviewer-templates
+        - name: static
+          configMap:
+            name: mbviewer-static
+        - name: deps
+          emptyDir:
+            sizeLimit: 512Mi
+        # кеш мініатюр; після перезапуску пода наповнюється заново з SharePoint
+        - name: cache
+          emptyDir:
+            sizeLimit: 5Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+spec:
+  selector:
+    app: mbviewer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - merch.vsisvoi.ua
+      secretName: mbviewer-vsisvoi-tls
+  rules:
+    - host: merch.vsisvoi.ua
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mbviewer
+                port:
+                  number: 80
