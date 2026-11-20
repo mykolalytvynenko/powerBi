@@ -1,5 +1,7 @@
 # Зразки викладок — веб-перегляд (Python)
 
+Адреса: **https://merch.vsisvoi.ua**
+
 Веб-застосунок **тільки для перегляду** фото викладок з SharePoint. Логіка та сама, що в Power Apps:
 магазин → бренд → остання викладка кожного відділу → фото (+ 10 попередніх викладок), режим «Всі магазини».
 Працює в браузері на телефоні й комп'ютері. Дані не змінює: flow MB-01/MB-03 і списки лишаються як є.
@@ -46,11 +48,15 @@ sudo cp /opt/mbviewer/viewer/deploy/mbviewer.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now mbviewer
 curl http://127.0.0.1:8000/health             # {"status":"ok"}
 
+# Сертифікат потрібен до підключення сайту, бо конфіг Nginx на нього посилається.
+# Let's Encrypt (порт 80 має бути відкритий з інтернету, DNS merch.vsisvoi.ua вказує на сервер):
+sudo certbot certonly --nginx -d merch.vsisvoi.ua
+# Якщо сертифікат корпоративний: покладіть його у файли й змініть шляхи ssl_certificate у конфігу.
+
 sudo cp /opt/mbviewer/viewer/deploy/nginx-mbviewer.conf /etc/nginx/sites-available/mbviewer
-sudo nano /etc/nginx/sites-available/mbviewer  # вписати домен
 sudo ln -s /etc/nginx/sites-available/mbviewer /etc/nginx/sites-enabled/
-sudo certbot --nginx -d <домен>                # або покласти корпоративний сертифікат
 sudo nginx -t && sudo systemctl reload nginx
+curl -I https://merch.vsisvoi.ua/health
 ```
 
 Оновлення: `cd /opt/mbviewer && sudo git pull && sudo systemctl restart mbviewer`.
