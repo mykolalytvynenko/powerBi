@@ -1,0 +1,64 @@
+# Підключення застосунку до наявного Traefik у k3s (сервер docker, 10.10.252.108).
+# Застосунок працює як служба systemd на хості; кластер лише маршрутизує на нього
+# merch.vsisvoi.ua і тримає сертифікат (cert-manager, ClusterIssuer letsencrypt-prod).
+# Наявні Ingress і Traefik не змінюються.
+#
+#   sudo kubectl apply -f k3s-merch.yaml
+#   sudo kubectl -n mbviewer get ingress,certificate
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mbviewer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8090
+---
+# Service без selector: адресу хоста задаємо вручну
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: mbviewer-host
+  namespace: mbviewer
+  labels:
+    kubernetes.io/service-name: mbviewer
+addressType: IPv4
+ports:
+  - name: http
+    port: 8090
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 10.10.252.108
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mbviewer
+  namespace: mbviewer
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - merch.vsisvoi.ua
+      secretName: merch-vsisvoi-ua-tls
+  rules:
+    - host: merch.vsisvoi.ua
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mbviewer
+                port:
+                  number: 80

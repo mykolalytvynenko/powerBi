@@ -7,8 +7,12 @@ Wants=network-online.target
 User=mbviewer
 Group=mbviewer
 WorkingDirectory=/opt/mbviewer/viewer
+# Типові значення; LISTEN_HOST, LISTEN_PORT і FORWARDED_ALLOW_IPS можна змінити в mbviewer.env
+Environment=LISTEN_HOST=127.0.0.1
+Environment=LISTEN_PORT=8000
+Environment=FORWARDED_ALLOW_IPS=127.0.0.1
 EnvironmentFile=/etc/mbviewer/mbviewer.env
-ExecStart=/opt/mbviewer/venv/bin/uvicorn --factory app.main:app_factory --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/mbviewer/venv/bin/uvicorn --factory app.main:app_factory --host ${LISTEN_HOST} --port ${LISTEN_PORT} --workers 2 --proxy-headers
 Restart=on-failure
 RestartSec=5
 CacheDirectory=mbviewer
