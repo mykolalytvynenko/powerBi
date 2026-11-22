@@ -23,6 +23,9 @@ from .graph import IMAGE_SIZES, DataSource, GraphError, GraphSource
 
 log = logging.getLogger("mbviewer")
 HERE = Path(__file__).parent
+# У k3s шаблони й статика монтуються з окремих ConfigMap, тому шлях можна задати змінними середовища
+TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR") or HERE / "templates")
+STATIC_DIR = Path(os.environ.get("STATIC_DIR") or HERE / "static")
 ALL = "*"  # значення store для режиму «Всі магазини»
 ALL_LABEL = "Всі магазини"
 PUBLIC_PATHS = ("/login", "/auth/", "/logout", "/health", "/static/")
@@ -39,7 +42,7 @@ def create_app(settings: Settings | None = None, source: DataSource | None = Non
         else:
             source = GraphSource(settings)
     catalog = Catalog(settings, source)
-    templates = Jinja2Templates(directory=str(HERE / "templates"))
+    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     image_dir = settings.image_cache_dir
 
     app = FastAPI(title="Зразки викладок", docs_url=None, redoc_url=None, openapi_url=None)
@@ -65,7 +68,7 @@ def create_app(settings: Settings | None = None, source: DataSource | None = Non
         https_only=settings.secure_cookies,
     )
     app.include_router(build_router(settings))
-    app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # --- допоміжне для шаблонів ---
 
