@@ -1,7 +1,11 @@
+import json
+from base64 import b64encode
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from itsdangerous import TimestampSigner
 
 from app.catalog import Catalog
 from app.config import Settings
@@ -11,14 +15,27 @@ from app.main import create_app
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(session_secret="test", fake_data=True, auth_disabled=True, image_cache_dir=tmp_path)
+    """Вхід увімкнено, як у звичайному режимі; дані демонстраційні."""
+    return Settings(tenant_id="t", client_id="c", client_secret="x", session_secret="test",
+                    fake_data=True, image_cache_dir=tmp_path)
+
+
+@pytest.fixture
+def open_settings(settings) -> Settings:
+    """AUTH_DISABLED=1: доступ без входу."""
+    return replace(settings, auth_disabled=True)
+
+
+def signed_in(client: TestClient, secret: str) -> TestClient:
+    """Кладе в клієнт cookie сесії так само, як це робить SessionMiddleware."""
+    payload = b64encode(json.dumps({"user": {"name": "Тест", "username": "test@vsisvoi.ua"}}).encode())
+    client.cookies.set("mbviewer", TimestampSigner(secret).sign(payload).decode())
+    return client
 
 
 @pytest.fixture
 def client(settings):
-    c = TestClient(create_app(settings, FakeSource()))
-    c.get("/login")  # dev-вхід
-    return c
+    return signed_in(TestClient(create_app(settings, FakeSource())), settings.session_secret)
 
 
 def test_requires_login(settings):
@@ -26,10 +43,38 @@ def test_requires_login(settings):
     r = c.get("/brands?store=*", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/login?next=")
     assert c.get("/img/x/1/medium").status_code == 401
+    assert c.get("/health").status_code == 200
 
 
-def test_open_redirect_blocked(settings):
-    c = TestClient(create_app(settings, FakeSource()))
+def test_signed_in_user_sees_name_and_logout(client):
+    r = client.get("/")
+    assert r.status_code == 200 and "Тест" in r.text and "/logout" in r.text
+
+
+def test_open_access_without_login(open_settings):
+    c = TestClient(create_app(open_settings, FakeSource()))
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 200 and "Хрещатик 27" in r.text
+    assert "/logout" not in r.text  # без входу немає ні імені, ні «Вийти»
+    r = c.get("/brands?store=*", follow_redirects=False)
+    assert r.status_code == 200
+    cat = Catalog(open_settings, FakeSource())
+    b = cat._batches()[0]
+    photo = cat.photos(b.batch_id)[0]
+    assert c.get(f"/img/{b.batch_id}/{photo.item_id}/medium").status_code == 200
+    # /login нічого не питає і повертає на сторінку
+    r = c.get("/login?next=/brands%3Fstore%3D*", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/brands?store=*"
+
+
+def test_open_access_ignores_stale_session(open_settings):
+    c = signed_in(TestClient(create_app(open_settings, FakeSource())), open_settings.session_secret)
+    r = c.get("/")
+    assert r.status_code == 200 and "Тест" not in r.text and "/logout" not in r.text
+
+
+def test_open_redirect_blocked(open_settings):
+    c = TestClient(create_app(open_settings, FakeSource()))
     r = c.get("/login?next=//evil.example", follow_redirects=False)
     assert r.headers["location"] == "/"
 

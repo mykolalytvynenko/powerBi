@@ -32,6 +32,9 @@ data:
   STATIC_DIR: /srv/viewer/static
   # Traefik звертається з мережі подів k3s
   FORWARDED_ALLOW_IPS: 10.42.0.0/16
+  # Вхід через Microsoft вимкнено: сайт доступний лише з внутрішньої мережі, фото бачить кожен у ній.
+  # Перед відкриттям сайту в інтернет поверніть вхід: видаліть цей рядок і запустіть k3s-deploy.sh.
+  AUTH_DISABLED: "1"
 ---
 apiVersion: apps/v1
 kind: Deployment

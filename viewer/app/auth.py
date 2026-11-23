@@ -30,8 +30,7 @@ def build_router(settings: Settings) -> APIRouter:
 
     @router.get("/login")
     def login(request: Request, next: str | None = None):
-        if settings.auth_disabled:
-            request.session["user"] = {"name": "Розробник", "username": "dev@localhost"}
+        if settings.auth_disabled:  # вхід вимкнено: сторінки відкриті, входити нікуди
             return RedirectResponse(_safe_next(next), status_code=303)
         flow = msal_app().initiate_auth_code_flow(LOGIN_SCOPES, redirect_uri=settings.redirect_uri)
         auth_uri = flow.pop("auth_uri")
