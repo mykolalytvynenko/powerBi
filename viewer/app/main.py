@@ -51,7 +51,8 @@ def create_app(settings: Settings | None = None, source: DataSource | None = Non
     @app.middleware("http")
     async def require_login(request: Request, call_next):
         path = request.url.path
-        if not path.startswith(PUBLIC_PATHS) and not request.session.get("user"):
+        # AUTH_DISABLED=1: відкритий доступ без входу (тільки для внутрішньої мережі)
+        if not settings.auth_disabled and not path.startswith(PUBLIC_PATHS) and not request.session.get("user"):
             if path.startswith("/img/"):
                 return Response(status_code=401)
             target = path + (f"?{request.url.query}" if request.url.query else "")
@@ -89,7 +90,7 @@ def create_app(settings: Settings | None = None, source: DataSource | None = Non
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
         ctx.update(
             request=request,
-            user=request.session.get("user"),
+            user=None if settings.auth_disabled else request.session.get("user"),
             url=url,
             q=lambda v: quote(v, safe=""),
             local=catalog.local,
